@@ -12,4 +12,17 @@
 - [X] Three Cognitive Status Diagnosis based on [SCST (Seoul Cognitive Status Test))](https://beaubrain.bio/publication/scst/)
 - [X] Binary Amyloid Beta Status Diagnosis based on [SCST (Seoul Cognitive Status Test))](https://beaubrain.bio/publication/scst/)
 - [X] Pipeline: Raw SCST dataset $\to$ P (Amyloid Beta == Positive | New Patient )
+- [ ] Search NEW important features (biomarkers)
+
+  - Compared to SNSB (Seoul Neuropsychological Screening Battery), SCST is Tablet-Based Digital Cognitive Test so that there are lots of features from the log.
+  - However, since the detailed features have been reported at the mid of this test, available parients are far tiny.
+  - That's why I could not find NEW biomarkers. I summarized additional features for future works.
+
+### Goal 1. Three Cognitive Status Diagnosis
+
+
+
+### Goal 2. Binary Amyloid Beta Status Diagnosis
+
+### Goal 3. Pipeline: Raw SCST data $\to$ Probability of Amyloid Beta Status
 
