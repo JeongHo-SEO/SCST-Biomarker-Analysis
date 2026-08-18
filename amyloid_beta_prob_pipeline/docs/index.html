@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amyloid Beta 양성 확률 예측</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  color-scheme:light;
+  --page:#f9f9f7; --surface:#fcfcfb; --surface-2:#f3f3f0;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+  --accent:#2a78d6; --accent-soft:#cde2fb;
+  --pos:#e34948; --neg:#2a78d6;
+  --warn:#fab219; --crit:#d03b3b; --good:#0ca30c;
+  --seq-400:#3987e5;
+}
+@media (prefers-color-scheme:dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme:dark;
+    --page:#0d0d0d; --surface:#1a1a19; --surface-2:#222221;
+    --ink:#fff; --ink-2:#c3c2b7; --ink-muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+    --accent:#3987e5; --accent-soft:#184f95;
+    --pos:#e66767; --neg:#3987e5;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --page:#0d0d0d; --surface:#1a1a19; --surface-2:#222221;
+  --ink:#fff; --ink-2:#c3c2b7; --ink-muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+  --accent:#3987e5; --accent-soft:#184f95;
+  --pos:#e66767; --neg:#3987e5;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--page); color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif;
+  font-size:14px; line-height:1.55;
+}
+header{
+  position:sticky; top:0; z-index:50; background:var(--surface);
+  border-bottom:1px solid var(--border); padding:12px 20px;
+  display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+}
+header h1{font-size:16px; margin:0; font-weight:650; letter-spacing:-.01em}
+header .sub{color:var(--ink-muted); font-size:12px}
+main{max-width:1500px; margin:0 auto; padding:20px}
+.card{
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:10px; padding:18px 20px; margin-bottom:16px;
+}
+.card > h2{
+  font-size:13px; margin:0 0 4px; font-weight:650;
+  text-transform:uppercase; letter-spacing:.06em; color:var(--ink-2);
+}
+.card > .hint{color:var(--ink-muted); font-size:12px; margin:0 0 14px}
+button{
+  font:inherit; font-size:13px; padding:7px 14px; border-radius:7px; cursor:pointer;
+  border:1px solid var(--border); background:var(--surface-2); color:var(--ink);
+}
+button:hover{background:var(--grid)}
+button.primary{background:var(--accent); border-color:transparent; color:#fff; font-weight:600}
+button.primary:hover{filter:brightness(1.08)}
+button:disabled{opacity:.45; cursor:not-allowed}
+button.icon{padding:6px 9px; font-size:12px}
+select{
+  font:inherit; font-size:13px; padding:5px 8px; border-radius:6px;
+  border:1px solid var(--axis); background:var(--surface); color:var(--ink); max-width:100%;
+}
+.row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.spacer{flex:1}
+.muted{color:var(--ink-muted)}
+.note{
+  border-left:3px solid var(--warn); background:var(--surface-2);
+  padding:10px 14px; border-radius:0 8px 8px 0; font-size:12.5px; color:var(--ink-2);
+}
+.note.bad{border-left-color:var(--crit)}
+.note.ok{border-left-color:var(--good)}
+.banner{
+  display:none; border-left:3px solid var(--crit); background:var(--surface-2);
+  padding:10px 14px; border-radius:0 8px 8px 0; font-size:13px; margin-bottom:14px;
+}
+.banner.on{display:block}
+table{border-collapse:collapse; width:100%; font-size:13px}
+th,td{padding:7px 10px; text-align:left; border-bottom:1px solid var(--grid); vertical-align:middle; white-space:nowrap}
+th{
+  font-size:11px; letter-spacing:.02em; color:var(--ink-muted); font-weight:600;
+  position:sticky; top:0; background:var(--surface); z-index:2;
+}
+td.num,th.num{text-align:right; font-variant-numeric:tabular-nums}
+tbody tr:hover{background:var(--surface-2)}
+.scroll{overflow:auto; max-height:min(64vh,680px); border:1px solid var(--border); border-radius:8px}
+.badge{
+  display:inline-block; padding:2px 8px; border-radius:999px; font-size:11.5px;
+  font-weight:600; background:var(--accent-soft); color:var(--accent);
+  border:1px solid transparent; white-space:nowrap;
+}
+.badge.blocked{background:transparent; color:var(--crit); border-color:var(--crit)}
+.tag{font-size:11px; padding:1px 6px; border-radius:4px; background:var(--surface-2);
+     color:var(--ink-muted); border:1px solid var(--border); font-weight:500}
+.meter{position:relative; height:8px; background:var(--grid); border-radius:4px; overflow:hidden; width:88px}
+.meter > i{display:block; height:100%; border-radius:0 4px 4px 0; background:var(--seq-400)}
+.pcell{display:flex; align-items:center; gap:9px; justify-content:flex-end}
+.pcell b{font-variant-numeric:tabular-nums; font-weight:650; min-width:50px; text-align:right}
+.drawer-bg{display:none; position:fixed; inset:0; background:rgba(0,0,0,.34); z-index:100}
+.drawer-bg.on{display:block}
+.drawer{
+  position:fixed; top:0; right:0; height:100%; width:min(760px,96vw); z-index:101;
+  background:var(--surface); border-left:1px solid var(--border);
+  transform:translateX(100%); transition:transform .18s ease; overflow-y:auto;
+}
+.drawer.on{transform:none}
+.drawer .dhead{
+  position:sticky; top:0; background:var(--surface); border-bottom:1px solid var(--border);
+  padding:14px 20px; display:flex; align-items:center; gap:12px;
+}
+.drawer .dbody{padding:18px 20px 40px}
+.hero{display:flex; align-items:baseline; gap:12px; margin:6px 0 2px}
+.hero .val{font-size:44px; font-weight:680; letter-spacing:-.02em; line-height:1}
+.hero .unit{font-size:15px; color:var(--ink-2)}
+.bigmeter{position:relative; height:14px; background:var(--grid); border-radius:7px; margin:14px 0 6px; overflow:hidden}
+.bigmeter > i{display:block; height:100%; border-radius:0 7px 7px 0; background:var(--seq-400)}
+.bigmeter .tick{position:absolute; top:0; bottom:0; width:1px; background:var(--surface); opacity:.85}
+.scalerow{display:flex; justify-content:space-between; font-size:11px; color:var(--ink-muted); font-variant-numeric:tabular-nums}
+pre.formula{
+  background:var(--surface-2); border:1px solid var(--border); border-radius:8px;
+  padding:12px 14px; font-size:11.5px; line-height:1.5; overflow-x:auto;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--ink-2); max-height:260px;
+}
+details.fold > summary{cursor:pointer; font-size:12.5px; color:var(--ink-2); margin:16px 0 8px; font-weight:600}
+tr.topk{background:color-mix(in srgb,var(--accent) 8%, transparent)}
+tr.topk td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.star{color:var(--accent); font-weight:700}
+.forest{position:relative; width:132px; height:14px}
+.forest .ref{position:absolute; top:0; bottom:0; width:1px; background:var(--axis)}
+.forest .ci{position:absolute; top:6px; height:2px; border-radius:1px}
+.forest .pt{position:absolute; top:2.5px; width:9px; height:9px; border-radius:50%; margin-left:-4.5px; box-shadow:0 0 0 2px var(--surface)}
+.legend{display:flex; gap:14px; align-items:center; font-size:11.5px; color:var(--ink-2); margin:8px 0 2px}
+.legend i{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:-1px}
+.kv{display:grid; grid-template-columns:auto 1fr; gap:4px 14px; font-size:12.5px; color:var(--ink-2)}
+.kv b{color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums}
+.stepnum{
+  display:inline-flex; width:20px; height:20px; border-radius:50%; background:var(--accent); color:#fff;
+  align-items:center; justify-content:center; font-size:11px; font-weight:700; margin-right:8px;
+}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px;
+     background:var(--surface-2); padding:1px 5px; border-radius:4px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Amyloid Beta 양성 확률 예측</h1>
+  <span class="sub">SCST 기반 로지스틱 회귀 · 브라우저 내 계산</span>
+  <span class="spacer"></span>
+  <span class="tag" id="srcTag">계수 로드 중…</span>
+  <button class="icon" id="themeBtn" title="라이트/다크 전환">◐ 테마</button>
+</header>
+
+<main>
+
+  <div class="card">
+    <div class="note">
+      <b>연구용 참고 도구이며 진단 목적이 아닙니다.</b>
+      모든 계산은 이 브라우저 안에서만 수행되며, 업로드한 파일과 환자 정보는 어디에도 전송·저장되지 않습니다.
+      페이지를 새로고침하면 모든 데이터가 사라집니다.
+    </div>
+  </div>
+
+  <div class="card" id="libCard" style="display:none">
+    <div class="note bad">
+      <b>Excel 처리 라이브러리를 불러오지 못했습니다.</b>
+      인터넷이 차단된 환경일 수 있습니다. Excel 업로드와 다운로드가 불가능합니다.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="stepnum">1</span>SCST 결과 파일 업로드</h2>
+    <p class="hint">SCST 웹에서 내려받은 Excel(.xlsx)을 그대로 올리세요. <code>COMMON</code> 시트를 읽습니다. 파일은 전송되지 않습니다.</p>
+    <div class="row">
+      <input type="file" id="file" accept=".xlsx,.xls,.csv">
+      <button id="demoBtn">예시 데이터로 시험</button>
+      <span id="fileInfo" class="muted"></span>
+    </div>
+    <div class="row" id="sheetRow" style="display:none; margin-top:10px">
+      <label class="muted">시트</label>
+      <select id="sheetSel"></select>
+    </div>
+    <div id="checkBox" style="margin-top:14px"></div>
+  </div>
+
+  <div class="card" id="tableCard" style="display:none">
+    <h2><span class="stepnum">2</span>환자별 정보 입력 및 결과</h2>
+    <p class="hint">
+      <code>cognitive_status</code>와 <code>APOE</code>는 수동 입력 항목입니다. 정보가 없으면 <b>Unknown</b>으로 두세요.
+      입력할수록 상위 모델이 자동 선택됩니다. 검사 순서상 <b>인지기능검사 → 혈액검사</b>이므로,
+      <code>cognitive_status</code> 없이 <code>APOE</code>만 입력할 수는 없습니다.
+    </p>
+    <div class="banner" id="orderBanner"></div>
+    <div class="row" style="margin-bottom:12px">
+      <label class="muted">전체 일괄 적용</label>
+      <select id="bulkStatus"></select>
+      <select id="bulkApoe"></select>
+      <span class="spacer"></span>
+      <button class="primary" id="dlBtn">Excel 다운로드</button>
+    </div>
+    <div class="scroll"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+    <p class="hint" style="margin-top:12px">행을 클릭하면 적용된 모델의 수식과 계수 표를 볼 수 있습니다.</p>
+  </div>
+
+</main>
+
+<div class="drawer-bg" id="drawerBg"></div>
+<aside class="drawer" id="drawer">
+  <div class="dhead">
+    <b id="dTitle">환자</b>
+    <span class="badge" id="dModel"></span>
+    <span class="spacer"></span>
+    <button class="icon" id="closeDrawer">닫기 ✕</button>
+  </div>
+  <div class="dbody" id="dBody"></div>
+</aside>
+
+<script id="model-data" type="application/json">{"meta":{"target":"P(1st_amyloid_status == 양성)","algorithm":"Logistic Regression (no regularization, no scaling)","note":"계수는 원 스케일입니다. 입력값을 그대로 곱해 더한 뒤 sigmoid를 적용하면 됩니다. 별도의 표준화나 calibration 보정이 필요 없습니다.","disclaimer":"연구용 참고 도구이며 진단 목적이 아닙니다.","random_state":42,"n_cv_splits":5},"application_rule":{"cognitive_status=Unknown, APOE=Unknown":"M2_All","cognitive_status=Known,   APOE=Unknown":"M2_SCD_MCI / M2_Dementia","cognitive_status=Unknown, APOE=Known":"인지기능검사 -> 혈액검사 순서이므로 cognitive_status 입력을 먼저 요청","cognitive_status=Known,   APOE=Known":"M4_SCD_MCI / M3_Dementia"},"encoding":{"sex":{"column":"sex_여성","rule":"sex_여성 = 1 if sex == '여성' else 0"},"APOE":{"column":"APOE_e4_carrier","rule":"APOE_e4_carrier = 1 if genotype contains 'E4' else 0"},"1st_cognitive_status":{"columns":["is_MCI","is_Dementia"],"rule":"is_MCI = 1 if status == 'MCI' else 0; is_Dementia = 1 if status == 'Dementia' else 0; reference = 'SCD' (둘 다 0)"},"composite_scores":{"columns":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score"],"rule":"demographic-stratified z-score를 그대로 입력 (추가 표준화 없음)"}},"models":{"M1_All":{"model_name":"M1_All","group":"All","requires":{"cognitive_status":false,"apoe":false,"demographics":false},"intercept":-1.31699,"coefficients":{"visual_forward_z_score":-0.070632,"visual_backward_z_score":-0.21686,"cowat_fruits_z_score":0.147189,"cowat_di_z_score":0.226337,"naming_z_score":0.188132,"block_design_z_score":-0.13658,"time_orientation_total_z_score":-0.101767,"immediate_free_recall_trial_1_z_score":-0.005013,"immediate_free_recall_trial_2_z_score":-0.186598,"immediate_free_recall_trial_3_z_score":0.028413,"delayed_free_recall_z_score":-0.350844,"word_recognition_true_positive_z_score":-0.080134,"word_recognition_true_negative_z_score":-0.049428,"place_recognition_z_score":-0.073515,"trailmaking_part_a_time_z_score":0.056608,"trailmaking_part_a_error_z_score":0.065701,"trailmaking_part_b_time_z_score":-0.176793,"trailmaking_part_b_error_z_score":-0.012277},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score"],"formula":"logit(P) = -1.3170\n           -0.3508 * delayed_free_recall_z_score\n           +0.2263 * cowat_di_z_score\n           -0.2169 * visual_backward_z_score\n           +0.1881 * naming_z_score\n           -0.1866 * immediate_free_recall_trial_2_z_score\n           -0.1768 * trailmaking_part_b_time_z_score\n           +0.1472 * cowat_fruits_z_score\n           -0.1366 * block_design_z_score\n           -0.1018 * time_orientation_total_z_score\n           -0.0801 * word_recognition_true_positive_z_score\n           -0.0735 * place_recognition_z_score\n           -0.0706 * visual_forward_z_score\n           +0.0657 * trailmaking_part_a_error_z_score\n           +0.0566 * trailmaking_part_a_time_z_score\n           -0.0494 * word_recognition_true_negative_z_score\n           +0.0284 * immediate_free_recall_trial_3_z_score\n           -0.0123 * trailmaking_part_b_error_z_score\n           -0.0050 * immediate_free_recall_trial_1_z_score\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"delayed_free_recall_z_score","beta":-0.350844,"OR":0.7041,"ci_lower":0.5969,"ci_upper":0.8306,"p_value":3.16342e-05,"is_significant":true,"top_k":true},{"feature":"cowat_di_z_score","beta":0.226337,"OR":1.254,"ci_lower":1.076,"ci_upper":1.4615,"p_value":0.00376635,"is_significant":true,"top_k":true},{"feature":"visual_backward_z_score","beta":-0.21686,"OR":0.805,"ci_lower":0.6668,"ci_upper":0.9719,"p_value":0.0240267,"is_significant":true,"top_k":true},{"feature":"naming_z_score","beta":0.188132,"OR":1.207,"ci_lower":1.0358,"ci_upper":1.4064,"p_value":0.015908,"is_significant":true,"top_k":false},{"feature":"immediate_free_recall_trial_2_z_score","beta":-0.186598,"OR":0.8298,"ci_lower":0.6702,"ci_upper":1.0274,"p_value":0.0868545,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_time_z_score","beta":-0.176793,"OR":0.838,"ci_lower":0.69,"ci_upper":1.0176,"p_value":0.0744124,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.147189,"OR":1.1586,"ci_lower":0.9786,"ci_upper":1.3716,"p_value":0.0874144,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.13658,"OR":0.8723,"ci_lower":0.7188,"ci_upper":1.0587,"p_value":0.16673,"is_significant":false,"top_k":false},{"feature":"time_orientation_total_z_score","beta":-0.101767,"OR":0.9032,"ci_lower":0.8476,"ci_upper":0.9625,"p_value":0.00169791,"is_significant":true,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":-0.080134,"OR":0.923,"ci_lower":0.8438,"ci_upper":1.0096,"p_value":0.0799502,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":-0.073515,"OR":0.9291,"ci_lower":0.7473,"ci_upper":1.1552,"p_value":0.508218,"is_significant":false,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.070632,"OR":0.9318,"ci_lower":0.7604,"ci_upper":1.1418,"p_value":0.495753,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.065701,"OR":1.0679,"ci_lower":1.0075,"ci_upper":1.1319,"p_value":0.0269234,"is_significant":true,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":0.056608,"OR":1.0582,"ci_lower":0.8918,"ci_upper":1.2558,"p_value":0.516768,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":-0.049428,"OR":0.9518,"ci_lower":0.8947,"ci_upper":1.0125,"p_value":0.11725,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":0.028413,"OR":1.0288,"ci_lower":0.8393,"ci_upper":1.2611,"p_value":0.784458,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":-0.012277,"OR":0.9878,"ci_lower":0.9158,"ci_upper":1.0655,"p_value":0.750528,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":-0.005013,"OR":0.995,"ci_lower":0.8398,"ci_upper":1.1789,"p_value":0.953809,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":889,"n_events":362,"prevalence":0.4072,"cv_auc_mean":0.7908,"cv_auc_std":0.0194,"threshold_youden":0.4632},"M2_All":{"model_name":"M2_All","group":"All","requires":{"cognitive_status":false,"apoe":false,"demographics":true},"intercept":-2.955102,"coefficients":{"visual_forward_z_score":-0.057284,"visual_backward_z_score":-0.240529,"cowat_fruits_z_score":0.157085,"cowat_di_z_score":0.236613,"naming_z_score":0.183794,"block_design_z_score":-0.138192,"time_orientation_total_z_score":-0.102818,"immediate_free_recall_trial_1_z_score":-0.026355,"immediate_free_recall_trial_2_z_score":-0.18448,"immediate_free_recall_trial_3_z_score":0.039195,"delayed_free_recall_z_score":-0.343676,"word_recognition_true_positive_z_score":-0.082062,"word_recognition_true_negative_z_score":-0.054838,"place_recognition_z_score":-0.073277,"trailmaking_part_a_time_z_score":0.040946,"trailmaking_part_a_error_z_score":0.068713,"trailmaking_part_b_time_z_score":-0.175768,"trailmaking_part_b_error_z_score":-0.015947,"sex_여성":0.398501,"AGE":0.011576,"education_year":0.040151},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score","sex_여성","AGE","education_year"],"formula":"logit(P) = -2.9551\n           +0.3985 * sex_여성\n           -0.3437 * delayed_free_recall_z_score\n           -0.2405 * visual_backward_z_score\n           +0.2366 * cowat_di_z_score\n           -0.1845 * immediate_free_recall_trial_2_z_score\n           +0.1838 * naming_z_score\n           -0.1758 * trailmaking_part_b_time_z_score\n           +0.1571 * cowat_fruits_z_score\n           -0.1382 * block_design_z_score\n           -0.1028 * time_orientation_total_z_score\n           -0.0821 * word_recognition_true_positive_z_score\n           -0.0733 * place_recognition_z_score\n           +0.0687 * trailmaking_part_a_error_z_score\n           -0.0573 * visual_forward_z_score\n           -0.0548 * word_recognition_true_negative_z_score\n           +0.0409 * trailmaking_part_a_time_z_score\n           +0.0402 * education_year\n           +0.0392 * immediate_free_recall_trial_3_z_score\n           -0.0264 * immediate_free_recall_trial_1_z_score\n           -0.0159 * trailmaking_part_b_error_z_score\n           +0.0116 * AGE\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"sex_여성","beta":0.398501,"OR":1.4896,"ci_lower":1.0417,"ci_upper":2.1302,"p_value":0.0289944,"is_significant":true,"top_k":true},{"feature":"delayed_free_recall_z_score","beta":-0.343676,"OR":0.7092,"ci_lower":0.6003,"ci_upper":0.8377,"p_value":5.2809e-05,"is_significant":true,"top_k":true},{"feature":"visual_backward_z_score","beta":-0.240529,"OR":0.7862,"ci_lower":0.6495,"ci_upper":0.9517,"p_value":0.013598,"is_significant":true,"top_k":true},{"feature":"cowat_di_z_score","beta":0.236613,"OR":1.267,"ci_lower":1.0832,"ci_upper":1.4819,"p_value":0.00308208,"is_significant":true,"top_k":false},{"feature":"immediate_free_recall_trial_2_z_score","beta":-0.18448,"OR":0.8315,"ci_lower":0.6698,"ci_upper":1.0323,"p_value":0.0946013,"is_significant":false,"top_k":false},{"feature":"naming_z_score","beta":0.183794,"OR":1.2018,"ci_lower":1.03,"ci_upper":1.4022,"p_value":0.0195223,"is_significant":true,"top_k":false},{"feature":"trailmaking_part_b_time_z_score","beta":-0.175768,"OR":0.8388,"ci_lower":0.6875,"ci_upper":1.0234,"p_value":0.0832702,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.157085,"OR":1.1701,"ci_lower":0.9874,"ci_upper":1.3866,"p_value":0.0697724,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.138192,"OR":0.8709,"ci_lower":0.7166,"ci_upper":1.0584,"p_value":0.164799,"is_significant":false,"top_k":false},{"feature":"time_orientation_total_z_score","beta":-0.102818,"OR":0.9023,"ci_lower":0.8443,"ci_upper":0.9643,"p_value":0.00241516,"is_significant":true,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":-0.082062,"OR":0.9212,"ci_lower":0.8413,"ci_upper":1.0087,"p_value":0.0763284,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":-0.073277,"OR":0.9293,"ci_lower":0.7469,"ci_upper":1.1564,"p_value":0.51112,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.068713,"OR":1.0711,"ci_lower":1.0095,"ci_upper":1.1365,"p_value":0.0229379,"is_significant":true,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.057284,"OR":0.9443,"ci_lower":0.769,"ci_upper":1.1596,"p_value":0.584595,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":-0.054838,"OR":0.9466,"ci_lower":0.8892,"ci_upper":1.0077,"p_value":0.0857377,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":0.040946,"OR":1.0418,"ci_lower":0.8759,"ci_upper":1.2391,"p_value":0.643571,"is_significant":false,"top_k":false},{"feature":"education_year","beta":0.040151,"OR":1.041,"ci_lower":0.9992,"ci_upper":1.0845,"p_value":0.0549022,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":0.039195,"OR":1.04,"ci_lower":0.8469,"ci_upper":1.2771,"p_value":0.708379,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":-0.026355,"OR":0.974,"ci_lower":0.8201,"ci_upper":1.1568,"p_value":0.763938,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":-0.015947,"OR":0.9842,"ci_lower":0.9111,"ci_upper":1.0631,"p_value":0.6853,"is_significant":false,"top_k":false},{"feature":"AGE","beta":0.011576,"OR":1.0116,"ci_lower":0.9906,"ci_upper":1.0332,"p_value":0.281338,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":889,"n_events":362,"prevalence":0.4072,"cv_auc_mean":0.7935,"cv_auc_std":0.02,"threshold_youden":0.4772},"M3_All":{"model_name":"M3_All","group":"All","requires":{"cognitive_status":true,"apoe":false,"demographics":true},"intercept":-3.109511,"coefficients":{"visual_forward_z_score":-0.063423,"visual_backward_z_score":-0.237062,"cowat_fruits_z_score":0.164415,"cowat_di_z_score":0.250552,"naming_z_score":0.191882,"block_design_z_score":-0.124116,"time_orientation_total_z_score":-0.093686,"immediate_free_recall_trial_1_z_score":-0.026483,"immediate_free_recall_trial_2_z_score":-0.175819,"immediate_free_recall_trial_3_z_score":0.034632,"delayed_free_recall_z_score":-0.314521,"word_recognition_true_positive_z_score":-0.080964,"word_recognition_true_negative_z_score":-0.05187,"place_recognition_z_score":-0.059149,"trailmaking_part_a_time_z_score":0.039463,"trailmaking_part_a_error_z_score":0.068397,"trailmaking_part_b_time_z_score":-0.161125,"trailmaking_part_b_error_z_score":-0.013816,"sex_여성":0.403586,"AGE":0.010027,"education_year":0.042466,"is_MCI":0.341024,"is_Dementia":0.546758},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score","sex_여성","AGE","education_year","is_MCI","is_Dementia"],"formula":"logit(P) = -3.1095\n           +0.5468 * is_Dementia\n           +0.4036 * sex_여성\n           +0.3410 * is_MCI\n           -0.3145 * delayed_free_recall_z_score\n           +0.2506 * cowat_di_z_score\n           -0.2371 * visual_backward_z_score\n           +0.1919 * naming_z_score\n           -0.1758 * immediate_free_recall_trial_2_z_score\n           +0.1644 * cowat_fruits_z_score\n           -0.1611 * trailmaking_part_b_time_z_score\n           -0.1241 * block_design_z_score\n           -0.0937 * time_orientation_total_z_score\n           -0.0810 * word_recognition_true_positive_z_score\n           +0.0684 * trailmaking_part_a_error_z_score\n           -0.0634 * visual_forward_z_score\n           -0.0591 * place_recognition_z_score\n           -0.0519 * word_recognition_true_negative_z_score\n           +0.0425 * education_year\n           +0.0395 * trailmaking_part_a_time_z_score\n           +0.0346 * immediate_free_recall_trial_3_z_score\n           -0.0265 * immediate_free_recall_trial_1_z_score\n           -0.0138 * trailmaking_part_b_error_z_score\n           +0.0100 * AGE\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"is_Dementia","beta":0.546758,"OR":1.7276,"ci_lower":0.872,"ci_upper":3.423,"p_value":0.117053,"is_significant":false,"top_k":false},{"feature":"sex_여성","beta":0.403586,"OR":1.4972,"ci_lower":1.0459,"ci_upper":2.1432,"p_value":0.0274464,"is_significant":true,"top_k":true},{"feature":"is_MCI","beta":0.341024,"OR":1.4064,"ci_lower":0.85,"ci_upper":2.3269,"p_value":0.184372,"is_significant":false,"top_k":false},{"feature":"delayed_free_recall_z_score","beta":-0.314521,"OR":0.7301,"ci_lower":0.6159,"ci_upper":0.8656,"p_value":0.000292291,"is_significant":true,"top_k":true},{"feature":"cowat_di_z_score","beta":0.250552,"OR":1.2847,"ci_lower":1.0968,"ci_upper":1.5048,"p_value":0.00189804,"is_significant":true,"top_k":true},{"feature":"visual_backward_z_score","beta":-0.237062,"OR":0.7889,"ci_lower":0.6511,"ci_upper":0.9559,"p_value":0.0154994,"is_significant":true,"top_k":false},{"feature":"naming_z_score","beta":0.191882,"OR":1.2115,"ci_lower":1.0379,"ci_upper":1.4142,"p_value":0.0150602,"is_significant":true,"top_k":false},{"feature":"immediate_free_recall_trial_2_z_score","beta":-0.175819,"OR":0.8388,"ci_lower":0.6752,"ci_upper":1.0419,"p_value":0.112066,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.164415,"OR":1.1787,"ci_lower":0.9939,"ci_upper":1.3978,"p_value":0.0587407,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_time_z_score","beta":-0.161125,"OR":0.8512,"ci_lower":0.6976,"ci_upper":1.0386,"p_value":0.112605,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.124116,"OR":0.8833,"ci_lower":0.726,"ci_upper":1.0746,"p_value":0.214638,"is_significant":false,"top_k":false},{"feature":"time_orientation_total_z_score","beta":-0.093686,"OR":0.9106,"ci_lower":0.8494,"ci_upper":0.9761,"p_value":0.00824993,"is_significant":true,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":-0.080964,"OR":0.9222,"ci_lower":0.8422,"ci_upper":1.0099,"p_value":0.0804154,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.068397,"OR":1.0708,"ci_lower":1.0095,"ci_upper":1.1358,"p_value":0.0229951,"is_significant":true,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.063423,"OR":0.9385,"ci_lower":0.7638,"ci_upper":1.1533,"p_value":0.54634,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":-0.059149,"OR":0.9426,"ci_lower":0.7562,"ci_upper":1.1748,"p_value":0.598632,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":-0.05187,"OR":0.9495,"ci_lower":0.8918,"ci_upper":1.0108,"p_value":0.104597,"is_significant":false,"top_k":false},{"feature":"education_year","beta":0.042466,"OR":1.0434,"ci_lower":1.0012,"ci_upper":1.0874,"p_value":0.0439176,"is_significant":true,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":0.039463,"OR":1.0403,"ci_lower":0.8747,"ci_upper":1.2371,"p_value":0.655359,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":0.034632,"OR":1.0352,"ci_lower":0.8425,"ci_upper":1.272,"p_value":0.741725,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":-0.026483,"OR":0.9739,"ci_lower":0.8194,"ci_upper":1.1575,"p_value":0.763778,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":-0.013816,"OR":0.9863,"ci_lower":0.9129,"ci_upper":1.0655,"p_value":0.726003,"is_significant":false,"top_k":false},{"feature":"AGE","beta":0.010027,"OR":1.0101,"ci_lower":0.989,"ci_upper":1.0317,"p_value":0.352426,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":889,"n_events":362,"prevalence":0.4072,"cv_auc_mean":0.7881,"cv_auc_std":0.0239,"threshold_youden":0.4429},"M4_All":{"model_name":"M4_All","group":"All","requires":{"cognitive_status":true,"apoe":true,"demographics":true},"intercept":-4.085037,"coefficients":{"visual_forward_z_score":-0.097041,"visual_backward_z_score":-0.194432,"cowat_fruits_z_score":0.128968,"cowat_di_z_score":0.211851,"naming_z_score":0.127186,"block_design_z_score":-0.12175,"time_orientation_total_z_score":-0.076362,"immediate_free_recall_trial_1_z_score":0.021291,"immediate_free_recall_trial_2_z_score":-0.201613,"immediate_free_recall_trial_3_z_score":0.03336,"delayed_free_recall_z_score":-0.32518,"word_recognition_true_positive_z_score":-0.061813,"word_recognition_true_negative_z_score":-0.041496,"place_recognition_z_score":0.028133,"trailmaking_part_a_time_z_score":0.037268,"trailmaking_part_a_error_z_score":0.049214,"trailmaking_part_b_time_z_score":-0.170673,"trailmaking_part_b_error_z_score":-0.000237,"sex_여성":0.388708,"AGE":0.019655,"education_year":0.032737,"is_MCI":0.241905,"is_Dementia":0.298923,"APOE_e4_carrier":1.613522},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score","sex_여성","AGE","education_year","is_MCI","is_Dementia","APOE_e4_carrier"],"formula":"logit(P) = -4.0850\n           +1.6135 * APOE_e4_carrier\n           +0.3887 * sex_여성\n           -0.3252 * delayed_free_recall_z_score\n           +0.2989 * is_Dementia\n           +0.2419 * is_MCI\n           +0.2119 * cowat_di_z_score\n           -0.2016 * immediate_free_recall_trial_2_z_score\n           -0.1944 * visual_backward_z_score\n           -0.1707 * trailmaking_part_b_time_z_score\n           +0.1290 * cowat_fruits_z_score\n           +0.1272 * naming_z_score\n           -0.1218 * block_design_z_score\n           -0.0970 * visual_forward_z_score\n           -0.0764 * time_orientation_total_z_score\n           -0.0618 * word_recognition_true_positive_z_score\n           +0.0492 * trailmaking_part_a_error_z_score\n           -0.0415 * word_recognition_true_negative_z_score\n           +0.0373 * trailmaking_part_a_time_z_score\n           +0.0334 * immediate_free_recall_trial_3_z_score\n           +0.0327 * education_year\n           +0.0281 * place_recognition_z_score\n           +0.0213 * immediate_free_recall_trial_1_z_score\n           +0.0197 * AGE\n           -0.0002 * trailmaking_part_b_error_z_score\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"APOE_e4_carrier","beta":1.613522,"OR":5.0205,"ci_lower":3.5101,"ci_upper":7.1808,"p_value":9.87356e-19,"is_significant":true,"top_k":true},{"feature":"sex_여성","beta":0.388708,"OR":1.4751,"ci_lower":1.0063,"ci_upper":2.1621,"p_value":0.0463355,"is_significant":true,"top_k":true},{"feature":"delayed_free_recall_z_score","beta":-0.32518,"OR":0.7224,"ci_lower":0.6018,"ci_upper":0.8671,"p_value":0.00048124,"is_significant":true,"top_k":true},{"feature":"is_Dementia","beta":0.298923,"OR":1.3484,"ci_lower":0.6517,"ci_upper":2.7898,"p_value":0.420344,"is_significant":false,"top_k":false},{"feature":"is_MCI","beta":0.241905,"OR":1.2737,"ci_lower":0.7506,"ci_upper":2.1613,"p_value":0.369951,"is_significant":false,"top_k":false},{"feature":"cowat_di_z_score","beta":0.211851,"OR":1.236,"ci_lower":1.0429,"ci_upper":1.4648,"p_value":0.0145013,"is_significant":true,"top_k":false},{"feature":"immediate_free_recall_trial_2_z_score","beta":-0.201613,"OR":0.8174,"ci_lower":0.6499,"ci_upper":1.028,"p_value":0.0847695,"is_significant":false,"top_k":false},{"feature":"visual_backward_z_score","beta":-0.194432,"OR":0.8233,"ci_lower":0.6713,"ci_upper":1.0097,"p_value":0.0618794,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_time_z_score","beta":-0.170673,"OR":0.8431,"ci_lower":0.6813,"ci_upper":1.0433,"p_value":0.116448,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.128968,"OR":1.1377,"ci_lower":0.9494,"ci_upper":1.3632,"p_value":0.162271,"is_significant":false,"top_k":false},{"feature":"naming_z_score","beta":0.127186,"OR":1.1356,"ci_lower":0.9623,"ci_upper":1.3402,"p_value":0.132309,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.12175,"OR":0.8854,"ci_lower":0.7191,"ci_upper":1.0901,"p_value":0.251393,"is_significant":false,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.097041,"OR":0.9075,"ci_lower":0.7304,"ci_upper":1.1276,"p_value":0.381117,"is_significant":false,"top_k":false},{"feature":"time_orientation_total_z_score","beta":-0.076362,"OR":0.9265,"ci_lower":0.8611,"ci_upper":0.9968,"p_value":0.0407655,"is_significant":true,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":-0.061813,"OR":0.9401,"ci_lower":0.8538,"ci_upper":1.035,"p_value":0.208038,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.049214,"OR":1.0504,"ci_lower":0.9871,"ci_upper":1.1179,"p_value":0.120993,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":-0.041496,"OR":0.9594,"ci_lower":0.898,"ci_upper":1.0249,"p_value":0.218535,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":0.037268,"OR":1.038,"ci_lower":0.864,"ci_upper":1.247,"p_value":0.690553,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":0.03336,"OR":1.0339,"ci_lower":0.8293,"ci_upper":1.289,"p_value":0.766832,"is_significant":false,"top_k":false},{"feature":"education_year","beta":0.032737,"OR":1.0333,"ci_lower":0.9884,"ci_upper":1.0802,"p_value":0.148265,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":0.028133,"OR":1.0285,"ci_lower":0.8146,"ci_upper":1.2987,"p_value":0.813117,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":0.021291,"OR":1.0215,"ci_lower":0.8536,"ci_upper":1.2225,"p_value":0.816234,"is_significant":false,"top_k":false},{"feature":"AGE","beta":0.019655,"OR":1.0198,"ci_lower":0.9973,"ci_upper":1.0429,"p_value":0.0846145,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":-0.000237,"OR":0.9998,"ci_lower":0.9224,"ci_upper":1.0836,"p_value":0.995395,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":889,"n_events":362,"prevalence":0.4072,"cv_auc_mean":0.8265,"cv_auc_std":0.0148,"threshold_youden":0.4559},"M1_SCD_MCI":{"model_name":"M1_SCD_MCI","group":"SCD_MCI","requires":{"cognitive_status":true,"apoe":false,"demographics":false},"intercept":-1.278735,"coefficients":{"visual_forward_z_score":-0.10506,"visual_backward_z_score":-0.217869,"cowat_fruits_z_score":0.123059,"cowat_di_z_score":0.153774,"naming_z_score":0.117244,"block_design_z_score":-0.071163,"time_orientation_total_z_score":-0.067648,"immediate_free_recall_trial_1_z_score":-0.011452,"immediate_free_recall_trial_2_z_score":-0.236962,"immediate_free_recall_trial_3_z_score":0.084698,"delayed_free_recall_z_score":-0.33658,"word_recognition_true_positive_z_score":0.009063,"word_recognition_true_negative_z_score":-0.096836,"place_recognition_z_score":-0.068388,"trailmaking_part_a_time_z_score":0.020459,"trailmaking_part_a_error_z_score":0.01078,"trailmaking_part_b_time_z_score":-0.064003,"trailmaking_part_b_error_z_score":-0.005549},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score"],"formula":"logit(P) = -1.2787\n           -0.3366 * delayed_free_recall_z_score\n           -0.2370 * immediate_free_recall_trial_2_z_score\n           -0.2179 * visual_backward_z_score\n           +0.1538 * cowat_di_z_score\n           +0.1231 * cowat_fruits_z_score\n           +0.1172 * naming_z_score\n           -0.1051 * visual_forward_z_score\n           -0.0968 * word_recognition_true_negative_z_score\n           +0.0847 * immediate_free_recall_trial_3_z_score\n           -0.0712 * block_design_z_score\n           -0.0684 * place_recognition_z_score\n           -0.0676 * time_orientation_total_z_score\n           -0.0640 * trailmaking_part_b_time_z_score\n           +0.0205 * trailmaking_part_a_time_z_score\n           -0.0115 * immediate_free_recall_trial_1_z_score\n           +0.0108 * trailmaking_part_a_error_z_score\n           +0.0091 * word_recognition_true_positive_z_score\n           -0.0055 * trailmaking_part_b_error_z_score\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"delayed_free_recall_z_score","beta":-0.33658,"OR":0.7142,"ci_lower":0.5881,"ci_upper":0.8673,"p_value":0.00068346,"is_significant":true,"top_k":true},{"feature":"immediate_free_recall_trial_2_z_score","beta":-0.236962,"OR":0.789,"ci_lower":0.6111,"ci_upper":1.0188,"p_value":0.0691606,"is_significant":false,"top_k":false},{"feature":"visual_backward_z_score","beta":-0.217869,"OR":0.8042,"ci_lower":0.6391,"ci_upper":1.012,"p_value":0.063162,"is_significant":false,"top_k":false},{"feature":"cowat_di_z_score","beta":0.153774,"OR":1.1662,"ci_lower":0.9811,"ci_upper":1.3862,"p_value":0.081161,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.123059,"OR":1.131,"ci_lower":0.9277,"ci_upper":1.3788,"p_value":0.22348,"is_significant":false,"top_k":false},{"feature":"naming_z_score","beta":0.117244,"OR":1.1244,"ci_lower":0.9314,"ci_upper":1.3574,"p_value":0.222479,"is_significant":false,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.10506,"OR":0.9003,"ci_lower":0.7055,"ci_upper":1.1489,"p_value":0.398445,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":-0.096836,"OR":0.9077,"ci_lower":0.8214,"ci_upper":1.0031,"p_value":0.0574087,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":0.084698,"OR":1.0884,"ci_lower":0.8516,"ci_upper":1.391,"p_value":0.49862,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.071163,"OR":0.9313,"ci_lower":0.743,"ci_upper":1.1673,"p_value":0.536949,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":-0.068388,"OR":0.9339,"ci_lower":0.7395,"ci_upper":1.1794,"p_value":0.565719,"is_significant":false,"top_k":false},{"feature":"time_orientation_total_z_score","beta":-0.067648,"OR":0.9346,"ci_lower":0.8531,"ci_upper":1.0239,"p_value":0.14636,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_time_z_score","beta":-0.064003,"OR":0.938,"ci_lower":0.7442,"ci_upper":1.1823,"p_value":0.587874,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":0.020459,"OR":1.0207,"ci_lower":0.8365,"ci_upper":1.2454,"p_value":0.840321,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":-0.011452,"OR":0.9886,"ci_lower":0.8135,"ci_upper":1.2014,"p_value":0.908356,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.01078,"OR":1.0108,"ci_lower":0.9145,"ci_upper":1.1173,"p_value":0.832847,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":0.009063,"OR":1.0091,"ci_lower":0.8709,"ci_upper":1.1692,"p_value":0.903982,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":-0.005549,"OR":0.9945,"ci_lower":0.8715,"ci_upper":1.1347,"p_value":0.934314,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":617,"n_events":177,"prevalence":0.2869,"cv_auc_mean":0.6931,"cv_auc_std":0.0446,"threshold_youden":0.3106},"M2_SCD_MCI":{"model_name":"M2_SCD_MCI","group":"SCD_MCI","requires":{"cognitive_status":true,"apoe":false,"demographics":true},"intercept":-3.012758,"coefficients":{"visual_forward_z_score":-0.088169,"visual_backward_z_score":-0.242707,"cowat_fruits_z_score":0.130285,"cowat_di_z_score":0.161974,"naming_z_score":0.117618,"block_design_z_score":-0.079189,"time_orientation_total_z_score":-0.074847,"immediate_free_recall_trial_1_z_score":-0.048908,"immediate_free_recall_trial_2_z_score":-0.237422,"immediate_free_recall_trial_3_z_score":0.110905,"delayed_free_recall_z_score":-0.322295,"word_recognition_true_positive_z_score":0.009791,"word_recognition_true_negative_z_score":-0.102658,"place_recognition_z_score":-0.087564,"trailmaking_part_a_time_z_score":0.010723,"trailmaking_part_a_error_z_score":0.00945,"trailmaking_part_b_time_z_score":-0.06543,"trailmaking_part_b_error_z_score":-0.012151,"sex_여성":0.518525,"AGE":0.009609,"education_year":0.051457},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score","sex_여성","AGE","education_year"],"formula":"logit(P) = -3.0128\n           +0.5185 * sex_여성\n           -0.3223 * delayed_free_recall_z_score\n           -0.2427 * visual_backward_z_score\n           -0.2374 * immediate_free_recall_trial_2_z_score\n           +0.1620 * cowat_di_z_score\n           +0.1303 * cowat_fruits_z_score\n           +0.1176 * naming_z_score\n           +0.1109 * immediate_free_recall_trial_3_z_score\n           -0.1027 * word_recognition_true_negative_z_score\n           -0.0882 * visual_forward_z_score\n           -0.0876 * place_recognition_z_score\n           -0.0792 * block_design_z_score\n           -0.0748 * time_orientation_total_z_score\n           -0.0654 * trailmaking_part_b_time_z_score\n           +0.0515 * education_year\n           -0.0489 * immediate_free_recall_trial_1_z_score\n           -0.0122 * trailmaking_part_b_error_z_score\n           +0.0107 * trailmaking_part_a_time_z_score\n           +0.0098 * word_recognition_true_positive_z_score\n           +0.0096 * AGE\n           +0.0095 * trailmaking_part_a_error_z_score\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"sex_여성","beta":0.518525,"OR":1.6795,"ci_lower":1.0867,"ci_upper":2.5958,"p_value":0.0195813,"is_significant":true,"top_k":true},{"feature":"delayed_free_recall_z_score","beta":-0.322295,"OR":0.7245,"ci_lower":0.5947,"ci_upper":0.8826,"p_value":0.00137116,"is_significant":true,"top_k":true},{"feature":"visual_backward_z_score","beta":-0.242707,"OR":0.7845,"ci_lower":0.6207,"ci_upper":0.9916,"p_value":0.042288,"is_significant":true,"top_k":true},{"feature":"immediate_free_recall_trial_2_z_score","beta":-0.237422,"OR":0.7887,"ci_lower":0.609,"ci_upper":1.0213,"p_value":0.0718742,"is_significant":false,"top_k":false},{"feature":"cowat_di_z_score","beta":0.161974,"OR":1.1758,"ci_lower":0.9851,"ci_upper":1.4035,"p_value":0.0729021,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.130285,"OR":1.1392,"ci_lower":0.9325,"ci_upper":1.3916,"p_value":0.202136,"is_significant":false,"top_k":false},{"feature":"naming_z_score","beta":0.117618,"OR":1.1248,"ci_lower":0.9281,"ci_upper":1.3633,"p_value":0.230515,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":0.110905,"OR":1.1173,"ci_lower":0.8714,"ci_upper":1.4326,"p_value":0.38194,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":-0.102658,"OR":0.9024,"ci_lower":0.8143,"ci_upper":1.0001,"p_value":0.0502422,"is_significant":false,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.088169,"OR":0.9156,"ci_lower":0.7156,"ci_upper":1.1715,"p_value":0.483168,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":-0.087564,"OR":0.9162,"ci_lower":0.7244,"ci_upper":1.1587,"p_value":0.464906,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.079189,"OR":0.9239,"ci_lower":0.7354,"ci_upper":1.1606,"p_value":0.496324,"is_significant":false,"top_k":false},{"feature":"time_orientation_total_z_score","beta":-0.074847,"OR":0.9279,"ci_lower":0.8444,"ci_upper":1.0196,"p_value":0.119539,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_time_z_score","beta":-0.06543,"OR":0.9367,"ci_lower":0.7385,"ci_upper":1.188,"p_value":0.589584,"is_significant":false,"top_k":false},{"feature":"education_year","beta":0.051457,"OR":1.0528,"ci_lower":1.0003,"ci_upper":1.1081,"p_value":0.0486191,"is_significant":true,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":-0.048908,"OR":0.9523,"ci_lower":0.7809,"ci_upper":1.1613,"p_value":0.62901,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":-0.012151,"OR":0.9879,"ci_lower":0.863,"ci_upper":1.131,"p_value":0.86019,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":0.010723,"OR":1.0108,"ci_lower":0.8272,"ci_upper":1.235,"p_value":0.916468,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":0.009791,"OR":1.0098,"ci_lower":0.8685,"ci_upper":1.1741,"p_value":0.898682,"is_significant":false,"top_k":false},{"feature":"AGE","beta":0.009609,"OR":1.0097,"ci_lower":0.9847,"ci_upper":1.0353,"p_value":0.452447,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.00945,"OR":1.0095,"ci_lower":0.9107,"ci_upper":1.119,"p_value":0.857263,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":617,"n_events":177,"prevalence":0.2869,"cv_auc_mean":0.6951,"cv_auc_std":0.0487,"threshold_youden":0.4032},"M3_SCD_MCI":{"model_name":"M3_SCD_MCI","group":"SCD_MCI","requires":{"cognitive_status":true,"apoe":false,"demographics":true},"intercept":-3.188186,"coefficients":{"visual_forward_z_score":-0.098617,"visual_backward_z_score":-0.239,"cowat_fruits_z_score":0.140477,"cowat_di_z_score":0.173765,"naming_z_score":0.13076,"block_design_z_score":-0.061717,"time_orientation_total_z_score":-0.073999,"immediate_free_recall_trial_1_z_score":-0.04367,"immediate_free_recall_trial_2_z_score":-0.233354,"immediate_free_recall_trial_3_z_score":0.104411,"delayed_free_recall_z_score":-0.304047,"word_recognition_true_positive_z_score":0.0123,"word_recognition_true_negative_z_score":-0.099225,"place_recognition_z_score":-0.073332,"trailmaking_part_a_time_z_score":0.015545,"trailmaking_part_a_error_z_score":0.009355,"trailmaking_part_b_time_z_score":-0.061143,"trailmaking_part_b_error_z_score":-0.010949,"sex_여성":0.526249,"AGE":0.008983,"education_year":0.051757,"is_MCI":0.332783},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score","sex_여성","AGE","education_year","is_MCI"],"formula":"logit(P) = -3.1882\n           +0.5262 * sex_여성\n           +0.3328 * is_MCI\n           -0.3040 * delayed_free_recall_z_score\n           -0.2390 * visual_backward_z_score\n           -0.2334 * immediate_free_recall_trial_2_z_score\n           +0.1738 * cowat_di_z_score\n           +0.1405 * cowat_fruits_z_score\n           +0.1308 * naming_z_score\n           +0.1044 * immediate_free_recall_trial_3_z_score\n           -0.0992 * word_recognition_true_negative_z_score\n           -0.0986 * visual_forward_z_score\n           -0.0740 * time_orientation_total_z_score\n           -0.0733 * place_recognition_z_score\n           -0.0617 * block_design_z_score\n           -0.0611 * trailmaking_part_b_time_z_score\n           +0.0518 * education_year\n           -0.0437 * immediate_free_recall_trial_1_z_score\n           +0.0155 * trailmaking_part_a_time_z_score\n           +0.0123 * word_recognition_true_positive_z_score\n           -0.0109 * trailmaking_part_b_error_z_score\n           +0.0094 * trailmaking_part_a_error_z_score\n           +0.0090 * AGE\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"sex_여성","beta":0.526249,"OR":1.6926,"ci_lower":1.0951,"ci_upper":2.616,"p_value":0.017842,"is_significant":true,"top_k":true},{"feature":"is_MCI","beta":0.332783,"OR":1.3948,"ci_lower":0.8289,"ci_upper":2.3471,"p_value":0.210088,"is_significant":false,"top_k":false},{"feature":"delayed_free_recall_z_score","beta":-0.304047,"OR":0.7378,"ci_lower":0.6047,"ci_upper":0.9002,"p_value":0.00273473,"is_significant":true,"top_k":true},{"feature":"visual_backward_z_score","beta":-0.239,"OR":0.7874,"ci_lower":0.6226,"ci_upper":0.9958,"p_value":0.0460778,"is_significant":true,"top_k":true},{"feature":"immediate_free_recall_trial_2_z_score","beta":-0.233354,"OR":0.7919,"ci_lower":0.6116,"ci_upper":1.0253,"p_value":0.0766409,"is_significant":false,"top_k":false},{"feature":"cowat_di_z_score","beta":0.173765,"OR":1.1898,"ci_lower":0.9953,"ci_upper":1.4222,"p_value":0.0563285,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.140477,"OR":1.1508,"ci_lower":0.9414,"ci_upper":1.4069,"p_value":0.170496,"is_significant":false,"top_k":false},{"feature":"naming_z_score","beta":0.13076,"OR":1.1397,"ci_lower":0.9395,"ci_upper":1.3825,"p_value":0.184475,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":0.104411,"OR":1.1101,"ci_lower":0.8658,"ci_upper":1.4232,"p_value":0.410281,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":-0.099225,"OR":0.9055,"ci_lower":0.8177,"ci_upper":1.0028,"p_value":0.0567205,"is_significant":false,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.098617,"OR":0.9061,"ci_lower":0.7078,"ci_upper":1.1599,"p_value":0.433818,"is_significant":false,"top_k":false},{"feature":"time_orientation_total_z_score","beta":-0.073999,"OR":0.9287,"ci_lower":0.8453,"ci_upper":1.0203,"p_value":0.123263,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":-0.073332,"OR":0.9293,"ci_lower":0.7334,"ci_upper":1.1775,"p_value":0.543806,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.061717,"OR":0.9401,"ci_lower":0.7472,"ci_upper":1.183,"p_value":0.598573,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_time_z_score","beta":-0.061143,"OR":0.9407,"ci_lower":0.7417,"ci_upper":1.193,"p_value":0.61402,"is_significant":false,"top_k":false},{"feature":"education_year","beta":0.051757,"OR":1.0531,"ci_lower":1.0005,"ci_upper":1.1085,"p_value":0.0476044,"is_significant":true,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":-0.04367,"OR":0.9573,"ci_lower":0.7842,"ci_upper":1.1685,"p_value":0.667695,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":0.015545,"OR":1.0157,"ci_lower":0.8314,"ci_upper":1.2408,"p_value":0.87903,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":0.0123,"OR":1.0124,"ci_lower":0.8709,"ci_upper":1.1768,"p_value":0.872755,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":-0.010949,"OR":0.9891,"ci_lower":0.8642,"ci_upper":1.132,"p_value":0.873654,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.009355,"OR":1.0094,"ci_lower":0.9106,"ci_upper":1.1189,"p_value":0.858696,"is_significant":false,"top_k":false},{"feature":"AGE","beta":0.008983,"OR":1.009,"ci_lower":0.984,"ci_upper":1.0347,"p_value":0.482864,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":617,"n_events":177,"prevalence":0.2869,"cv_auc_mean":0.6935,"cv_auc_std":0.0529,"threshold_youden":0.3706},"M4_SCD_MCI":{"model_name":"M4_SCD_MCI","group":"SCD_MCI","requires":{"cognitive_status":true,"apoe":true,"demographics":true},"intercept":-3.88055,"coefficients":{"visual_forward_z_score":-0.124325,"visual_backward_z_score":-0.17558,"cowat_fruits_z_score":0.103479,"cowat_di_z_score":0.157706,"naming_z_score":0.104137,"block_design_z_score":-0.044608,"time_orientation_total_z_score":-0.062221,"immediate_free_recall_trial_1_z_score":0.002612,"immediate_free_recall_trial_2_z_score":-0.287552,"immediate_free_recall_trial_3_z_score":0.124313,"delayed_free_recall_z_score":-0.317916,"word_recognition_true_positive_z_score":0.013213,"word_recognition_true_negative_z_score":-0.078039,"place_recognition_z_score":0.007687,"trailmaking_part_a_time_z_score":0.025592,"trailmaking_part_a_error_z_score":0.006867,"trailmaking_part_b_time_z_score":-0.094888,"trailmaking_part_b_error_z_score":-0.017887,"sex_여성":0.490645,"AGE":0.015781,"education_year":0.041986,"is_MCI":0.279079,"APOE_e4_carrier":1.282869},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score","sex_여성","AGE","education_year","is_MCI","APOE_e4_carrier"],"formula":"logit(P) = -3.8805\n           +1.2829 * APOE_e4_carrier\n           +0.4906 * sex_여성\n           -0.3179 * delayed_free_recall_z_score\n           -0.2876 * immediate_free_recall_trial_2_z_score\n           +0.2791 * is_MCI\n           -0.1756 * visual_backward_z_score\n           +0.1577 * cowat_di_z_score\n           -0.1243 * visual_forward_z_score\n           +0.1243 * immediate_free_recall_trial_3_z_score\n           +0.1041 * naming_z_score\n           +0.1035 * cowat_fruits_z_score\n           -0.0949 * trailmaking_part_b_time_z_score\n           -0.0780 * word_recognition_true_negative_z_score\n           -0.0622 * time_orientation_total_z_score\n           -0.0446 * block_design_z_score\n           +0.0420 * education_year\n           +0.0256 * trailmaking_part_a_time_z_score\n           -0.0179 * trailmaking_part_b_error_z_score\n           +0.0158 * AGE\n           +0.0132 * word_recognition_true_positive_z_score\n           +0.0077 * place_recognition_z_score\n           +0.0069 * trailmaking_part_a_error_z_score\n           +0.0026 * immediate_free_recall_trial_1_z_score\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"APOE_e4_carrier","beta":1.282869,"OR":3.607,"ci_lower":2.3548,"ci_upper":5.5251,"p_value":3.71637e-09,"is_significant":true,"top_k":true},{"feature":"sex_여성","beta":0.490645,"OR":1.6334,"ci_lower":1.0372,"ci_upper":2.5722,"p_value":0.0342005,"is_significant":true,"top_k":true},{"feature":"delayed_free_recall_z_score","beta":-0.317916,"OR":0.7277,"ci_lower":0.5905,"ci_upper":0.8966,"p_value":0.00284495,"is_significant":true,"top_k":true},{"feature":"immediate_free_recall_trial_2_z_score","beta":-0.287552,"OR":0.7501,"ci_lower":0.5737,"ci_upper":0.9808,"p_value":0.0355799,"is_significant":true,"top_k":false},{"feature":"is_MCI","beta":0.279079,"OR":1.3219,"ci_lower":0.772,"ci_upper":2.2637,"p_value":0.309215,"is_significant":false,"top_k":false},{"feature":"visual_backward_z_score","beta":-0.17558,"OR":0.839,"ci_lower":0.6573,"ci_upper":1.0708,"p_value":0.158427,"is_significant":false,"top_k":false},{"feature":"cowat_di_z_score","beta":0.157706,"OR":1.1708,"ci_lower":0.971,"ci_upper":1.4117,"p_value":0.0985542,"is_significant":false,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.124325,"OR":0.8831,"ci_lower":0.685,"ci_upper":1.1385,"p_value":0.337462,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":0.124313,"OR":1.1324,"ci_lower":0.8731,"ci_upper":1.4686,"p_value":0.348632,"is_significant":false,"top_k":false},{"feature":"naming_z_score","beta":0.104137,"OR":1.1098,"ci_lower":0.9087,"ci_upper":1.3553,"p_value":0.307134,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.103479,"OR":1.109,"ci_lower":0.8987,"ci_upper":1.3686,"p_value":0.334829,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_time_z_score","beta":-0.094888,"OR":0.9095,"ci_lower":0.7127,"ci_upper":1.1605,"p_value":0.445487,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":-0.078039,"OR":0.9249,"ci_lower":0.8331,"ci_upper":1.0269,"p_value":0.143597,"is_significant":false,"top_k":false},{"feature":"time_orientation_total_z_score","beta":-0.062221,"OR":0.9397,"ci_lower":0.8526,"ci_upper":1.0356,"p_value":0.209796,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.044608,"OR":0.9564,"ci_lower":0.7534,"ci_upper":1.214,"p_value":0.713962,"is_significant":false,"top_k":false},{"feature":"education_year","beta":0.041986,"OR":1.0429,"ci_lower":0.9881,"ci_upper":1.1007,"p_value":0.126999,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":0.025592,"OR":1.0259,"ci_lower":0.8339,"ci_upper":1.2621,"p_value":0.80871,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":-0.017887,"OR":0.9823,"ci_lower":0.8557,"ci_upper":1.1276,"p_value":0.799402,"is_significant":false,"top_k":false},{"feature":"AGE","beta":0.015781,"OR":1.0159,"ci_lower":0.9893,"ci_upper":1.0432,"p_value":0.243913,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":0.013213,"OR":1.0133,"ci_lower":0.8658,"ci_upper":1.1859,"p_value":0.869245,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":0.007687,"OR":1.0077,"ci_lower":0.7872,"ci_upper":1.29,"p_value":0.951353,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.006867,"OR":1.0069,"ci_lower":0.9029,"ci_upper":1.1228,"p_value":0.901724,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":0.002612,"OR":1.0026,"ci_lower":0.8186,"ci_upper":1.2279,"p_value":0.979856,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":617,"n_events":177,"prevalence":0.2869,"cv_auc_mean":0.7377,"cv_auc_std":0.0552,"threshold_youden":0.3598},"M1_Dementia":{"model_name":"M1_Dementia","group":"Dementia","requires":{"cognitive_status":true,"apoe":false,"demographics":false},"intercept":-1.600533,"coefficients":{"visual_forward_z_score":-0.084036,"visual_backward_z_score":-0.160545,"cowat_fruits_z_score":0.176056,"cowat_di_z_score":0.486231,"naming_z_score":0.272914,"block_design_z_score":-0.249692,"time_orientation_total_z_score":-0.130483,"immediate_free_recall_trial_1_z_score":-0.039757,"immediate_free_recall_trial_2_z_score":-0.021111,"immediate_free_recall_trial_3_z_score":-0.104869,"delayed_free_recall_z_score":-0.445293,"word_recognition_true_positive_z_score":-0.138238,"word_recognition_true_negative_z_score":-0.007128,"place_recognition_z_score":-0.193532,"trailmaking_part_a_time_z_score":0.171212,"trailmaking_part_a_error_z_score":0.09403,"trailmaking_part_b_time_z_score":-0.45142,"trailmaking_part_b_error_z_score":-0.011393},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score"],"formula":"logit(P) = -1.6005\n           +0.4862 * cowat_di_z_score\n           -0.4514 * trailmaking_part_b_time_z_score\n           -0.4453 * delayed_free_recall_z_score\n           +0.2729 * naming_z_score\n           -0.2497 * block_design_z_score\n           -0.1935 * place_recognition_z_score\n           +0.1761 * cowat_fruits_z_score\n           +0.1712 * trailmaking_part_a_time_z_score\n           -0.1605 * visual_backward_z_score\n           -0.1382 * word_recognition_true_positive_z_score\n           -0.1305 * time_orientation_total_z_score\n           -0.1049 * immediate_free_recall_trial_3_z_score\n           +0.0940 * trailmaking_part_a_error_z_score\n           -0.0840 * visual_forward_z_score\n           -0.0398 * immediate_free_recall_trial_1_z_score\n           -0.0211 * immediate_free_recall_trial_2_z_score\n           -0.0114 * trailmaking_part_b_error_z_score\n           -0.0071 * word_recognition_true_negative_z_score\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"cowat_di_z_score","beta":0.486231,"OR":1.6262,"ci_lower":1.1392,"ci_upper":2.3214,"p_value":0.00741874,"is_significant":true,"top_k":true},{"feature":"trailmaking_part_b_time_z_score","beta":-0.45142,"OR":0.6367,"ci_lower":0.4008,"ci_upper":1.0116,"p_value":0.0559762,"is_significant":false,"top_k":false},{"feature":"delayed_free_recall_z_score","beta":-0.445293,"OR":0.6406,"ci_lower":0.411,"ci_upper":0.9986,"p_value":0.0492765,"is_significant":true,"top_k":true},{"feature":"naming_z_score","beta":0.272914,"OR":1.3138,"ci_lower":0.9904,"ci_upper":1.7428,"p_value":0.0583693,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.249692,"OR":0.779,"ci_lower":0.5057,"ci_upper":1.2002,"p_value":0.257517,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":-0.193532,"OR":0.824,"ci_lower":0.4186,"ci_upper":1.6223,"p_value":0.575495,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.176056,"OR":1.1925,"ci_lower":0.8523,"ci_upper":1.6685,"p_value":0.304279,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":0.171212,"OR":1.1867,"ci_lower":0.8016,"ci_upper":1.7569,"p_value":0.392396,"is_significant":false,"top_k":false},{"feature":"visual_backward_z_score","beta":-0.160545,"OR":0.8517,"ci_lower":0.5867,"ci_upper":1.2363,"p_value":0.398506,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":-0.138238,"OR":0.8709,"ci_lower":0.7672,"ci_upper":0.9886,"p_value":0.0325892,"is_significant":true,"top_k":true},{"feature":"time_orientation_total_z_score","beta":-0.130483,"OR":0.8777,"ci_lower":0.7875,"ci_upper":0.9782,"p_value":0.0183867,"is_significant":true,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":-0.104869,"OR":0.9004,"ci_lower":0.6142,"ci_upper":1.3201,"p_value":0.591096,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.09403,"OR":1.0986,"ci_lower":1.0171,"ci_upper":1.1866,"p_value":0.0168237,"is_significant":true,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.084036,"OR":0.9194,"ci_lower":0.6158,"ci_upper":1.3727,"p_value":0.681124,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":-0.039757,"OR":0.961,"ci_lower":0.6433,"ci_upper":1.4357,"p_value":0.846081,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_2_z_score","beta":-0.021111,"OR":0.9791,"ci_lower":0.6317,"ci_upper":1.5175,"p_value":0.924771,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":-0.011393,"OR":0.9887,"ci_lower":0.8915,"ci_upper":1.0964,"p_value":0.829032,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":-0.007128,"OR":0.9929,"ci_lower":0.9107,"ci_upper":1.0826,"p_value":0.87162,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":272,"n_events":185,"prevalence":0.6801,"cv_auc_mean":0.7323,"cv_auc_std":0.094,"threshold_youden":0.7368},"M2_Dementia":{"model_name":"M2_Dementia","group":"Dementia","requires":{"cognitive_status":true,"apoe":false,"demographics":true},"intercept":-4.053376,"coefficients":{"visual_forward_z_score":-0.089622,"visual_backward_z_score":-0.154793,"cowat_fruits_z_score":0.166465,"cowat_di_z_score":0.501462,"naming_z_score":0.270187,"block_design_z_score":-0.253149,"time_orientation_total_z_score":-0.115477,"immediate_free_recall_trial_1_z_score":-0.043665,"immediate_free_recall_trial_2_z_score":-0.018539,"immediate_free_recall_trial_3_z_score":-0.09689,"delayed_free_recall_z_score":-0.510038,"word_recognition_true_positive_z_score":-0.139261,"word_recognition_true_negative_z_score":-0.009547,"place_recognition_z_score":-0.23622,"trailmaking_part_a_time_z_score":0.097166,"trailmaking_part_a_error_z_score":0.100534,"trailmaking_part_b_time_z_score":-0.464268,"trailmaking_part_b_error_z_score":-0.010619,"sex_여성":0.175847,"AGE":0.028096,"education_year":-0.001676},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score","sex_여성","AGE","education_year"],"formula":"logit(P) = -4.0534\n           -0.5100 * delayed_free_recall_z_score\n           +0.5015 * cowat_di_z_score\n           -0.4643 * trailmaking_part_b_time_z_score\n           +0.2702 * naming_z_score\n           -0.2531 * block_design_z_score\n           -0.2362 * place_recognition_z_score\n           +0.1758 * sex_여성\n           +0.1665 * cowat_fruits_z_score\n           -0.1548 * visual_backward_z_score\n           -0.1393 * word_recognition_true_positive_z_score\n           -0.1155 * time_orientation_total_z_score\n           +0.1005 * trailmaking_part_a_error_z_score\n           +0.0972 * trailmaking_part_a_time_z_score\n           -0.0969 * immediate_free_recall_trial_3_z_score\n           -0.0896 * visual_forward_z_score\n           -0.0437 * immediate_free_recall_trial_1_z_score\n           +0.0281 * AGE\n           -0.0185 * immediate_free_recall_trial_2_z_score\n           -0.0106 * trailmaking_part_b_error_z_score\n           -0.0095 * word_recognition_true_negative_z_score\n           -0.0017 * education_year\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"delayed_free_recall_z_score","beta":-0.510038,"OR":0.6005,"ci_lower":0.3753,"ci_upper":0.9607,"p_value":0.0334018,"is_significant":true,"top_k":true},{"feature":"cowat_di_z_score","beta":0.501462,"OR":1.6511,"ci_lower":1.1462,"ci_upper":2.3784,"p_value":0.00708349,"is_significant":true,"top_k":true},{"feature":"trailmaking_part_b_time_z_score","beta":-0.464268,"OR":0.6286,"ci_lower":0.3948,"ci_upper":1.0009,"p_value":0.0504608,"is_significant":false,"top_k":false},{"feature":"naming_z_score","beta":0.270187,"OR":1.3102,"ci_lower":0.9825,"ci_upper":1.7473,"p_value":0.0658383,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.253149,"OR":0.7764,"ci_lower":0.5008,"ci_upper":1.2034,"p_value":0.257653,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":-0.23622,"OR":0.7896,"ci_lower":0.3864,"ci_upper":1.6134,"p_value":0.51702,"is_significant":false,"top_k":false},{"feature":"sex_여성","beta":0.175847,"OR":1.1923,"ci_lower":0.5805,"ci_upper":2.4488,"p_value":0.63204,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.166465,"OR":1.1811,"ci_lower":0.8375,"ci_upper":1.6657,"p_value":0.342595,"is_significant":false,"top_k":false},{"feature":"visual_backward_z_score","beta":-0.154793,"OR":0.8566,"ci_lower":0.5877,"ci_upper":1.2485,"p_value":0.420652,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":-0.139261,"OR":0.87,"ci_lower":0.7659,"ci_upper":0.9883,"p_value":0.0322746,"is_significant":true,"top_k":true},{"feature":"time_orientation_total_z_score","beta":-0.115477,"OR":0.8909,"ci_lower":0.7965,"ci_upper":0.9965,"p_value":0.0433175,"is_significant":true,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.100534,"OR":1.1058,"ci_lower":1.02,"ci_upper":1.1987,"p_value":0.0145999,"is_significant":true,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":0.097166,"OR":1.102,"ci_lower":0.73,"ci_upper":1.6636,"p_value":0.643761,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":-0.09689,"OR":0.9077,"ci_lower":0.6156,"ci_upper":1.3383,"p_value":0.62481,"is_significant":false,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.089622,"OR":0.9143,"ci_lower":0.6082,"ci_upper":1.3743,"p_value":0.666496,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":-0.043665,"OR":0.9573,"ci_lower":0.6357,"ci_upper":1.4416,"p_value":0.83443,"is_significant":false,"top_k":false},{"feature":"AGE","beta":0.028096,"OR":1.0285,"ci_lower":0.9771,"ci_upper":1.0826,"p_value":0.283189,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_2_z_score","beta":-0.018539,"OR":0.9816,"ci_lower":0.6297,"ci_upper":1.5303,"p_value":0.93478,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":-0.010619,"OR":0.9894,"ci_lower":0.8918,"ci_upper":1.0977,"p_value":0.841153,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":-0.009547,"OR":0.9905,"ci_lower":0.9076,"ci_upper":1.081,"p_value":0.830587,"is_significant":false,"top_k":false},{"feature":"education_year","beta":-0.001676,"OR":0.9983,"ci_lower":0.9203,"ci_upper":1.0829,"p_value":0.967784,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":272,"n_events":185,"prevalence":0.6801,"cv_auc_mean":0.7289,"cv_auc_std":0.0958,"threshold_youden":0.7171},"M3_Dementia":{"model_name":"M3_Dementia","group":"Dementia","requires":{"cognitive_status":true,"apoe":true,"demographics":true},"intercept":-6.415981,"coefficients":{"visual_forward_z_score":-0.093157,"visual_backward_z_score":-0.231039,"cowat_fruits_z_score":0.191312,"cowat_di_z_score":0.350824,"naming_z_score":0.104169,"block_design_z_score":-0.254147,"time_orientation_total_z_score":-0.089435,"immediate_free_recall_trial_1_z_score":0.004712,"immediate_free_recall_trial_2_z_score":0.113632,"immediate_free_recall_trial_3_z_score":-0.202674,"delayed_free_recall_z_score":-0.503969,"word_recognition_true_positive_z_score":-0.107781,"word_recognition_true_negative_z_score":0.001552,"place_recognition_z_score":-0.170524,"trailmaking_part_a_time_z_score":-0.001876,"trailmaking_part_a_error_z_score":0.070214,"trailmaking_part_b_time_z_score":-0.31997,"trailmaking_part_b_error_z_score":0.034588,"sex_여성":0.30364,"AGE":0.04689,"education_year":-0.006732,"APOE_e4_carrier":2.514036},"features":["visual_forward_z_score","visual_backward_z_score","cowat_fruits_z_score","cowat_di_z_score","naming_z_score","block_design_z_score","time_orientation_total_z_score","immediate_free_recall_trial_1_z_score","immediate_free_recall_trial_2_z_score","immediate_free_recall_trial_3_z_score","delayed_free_recall_z_score","word_recognition_true_positive_z_score","word_recognition_true_negative_z_score","place_recognition_z_score","trailmaking_part_a_time_z_score","trailmaking_part_a_error_z_score","trailmaking_part_b_time_z_score","trailmaking_part_b_error_z_score","sex_여성","AGE","education_year","APOE_e4_carrier"],"formula":"logit(P) = -6.4160\n           +2.5140 * APOE_e4_carrier\n           -0.5040 * delayed_free_recall_z_score\n           +0.3508 * cowat_di_z_score\n           -0.3200 * trailmaking_part_b_time_z_score\n           +0.3036 * sex_여성\n           -0.2541 * block_design_z_score\n           -0.2310 * visual_backward_z_score\n           -0.2027 * immediate_free_recall_trial_3_z_score\n           +0.1913 * cowat_fruits_z_score\n           -0.1705 * place_recognition_z_score\n           +0.1136 * immediate_free_recall_trial_2_z_score\n           -0.1078 * word_recognition_true_positive_z_score\n           +0.1042 * naming_z_score\n           -0.0932 * visual_forward_z_score\n           -0.0894 * time_orientation_total_z_score\n           +0.0702 * trailmaking_part_a_error_z_score\n           +0.0469 * AGE\n           +0.0346 * trailmaking_part_b_error_z_score\n           -0.0067 * education_year\n           +0.0047 * immediate_free_recall_trial_1_z_score\n           -0.0019 * trailmaking_part_a_time_z_score\n           +0.0016 * word_recognition_true_negative_z_score\n\nP(amyloid = positive) = 1 / (1 + exp(-logit(P)))","or_table":[{"feature":"APOE_e4_carrier","beta":2.514036,"OR":12.3547,"ci_lower":5.6375,"ci_upper":27.0755,"p_value":3.38114e-10,"is_significant":true,"top_k":true},{"feature":"delayed_free_recall_z_score","beta":-0.503969,"OR":0.6041,"ci_lower":0.3589,"ci_upper":1.0171,"p_value":0.0579153,"is_significant":false,"top_k":false},{"feature":"cowat_di_z_score","beta":0.350824,"OR":1.4202,"ci_lower":0.9403,"ci_upper":2.1451,"p_value":0.0954296,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_time_z_score","beta":-0.31997,"OR":0.7262,"ci_lower":0.4343,"ci_upper":1.2142,"p_value":0.222442,"is_significant":false,"top_k":false},{"feature":"sex_여성","beta":0.30364,"OR":1.3548,"ci_lower":0.5842,"ci_upper":3.1419,"p_value":0.479264,"is_significant":false,"top_k":false},{"feature":"block_design_z_score","beta":-0.254147,"OR":0.7756,"ci_lower":0.4713,"ci_upper":1.2763,"p_value":0.31733,"is_significant":false,"top_k":false},{"feature":"visual_backward_z_score","beta":-0.231039,"OR":0.7937,"ci_lower":0.5104,"ci_upper":1.2343,"p_value":0.305083,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_3_z_score","beta":-0.202674,"OR":0.8165,"ci_lower":0.5322,"ci_upper":1.2529,"p_value":0.353518,"is_significant":false,"top_k":false},{"feature":"cowat_fruits_z_score","beta":0.191312,"OR":1.2108,"ci_lower":0.8176,"ci_upper":1.7933,"p_value":0.339707,"is_significant":false,"top_k":false},{"feature":"place_recognition_z_score","beta":-0.170524,"OR":0.8432,"ci_lower":0.3804,"ci_upper":1.8692,"p_value":0.67458,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_2_z_score","beta":0.113632,"OR":1.1203,"ci_lower":0.6891,"ci_upper":1.8215,"p_value":0.64679,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_positive_z_score","beta":-0.107781,"OR":0.8978,"ci_lower":0.7769,"ci_upper":1.0375,"p_value":0.144145,"is_significant":false,"top_k":false},{"feature":"naming_z_score","beta":0.104169,"OR":1.1098,"ci_lower":0.7908,"ci_upper":1.5574,"p_value":0.546782,"is_significant":false,"top_k":false},{"feature":"visual_forward_z_score","beta":-0.093157,"OR":0.9111,"ci_lower":0.5713,"ci_upper":1.4529,"p_value":0.695635,"is_significant":false,"top_k":false},{"feature":"time_orientation_total_z_score","beta":-0.089435,"OR":0.9144,"ci_lower":0.8073,"ci_upper":1.0358,"p_value":0.159395,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_error_z_score","beta":0.070214,"OR":1.0727,"ci_lower":0.98,"ci_upper":1.1743,"p_value":0.128083,"is_significant":false,"top_k":false},{"feature":"AGE","beta":0.04689,"OR":1.048,"ci_lower":0.9935,"ci_upper":1.1055,"p_value":0.0851838,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_b_error_z_score","beta":0.034588,"OR":1.0352,"ci_lower":0.9253,"ci_upper":1.1581,"p_value":0.545774,"is_significant":false,"top_k":false},{"feature":"education_year","beta":-0.006732,"OR":0.9933,"ci_lower":0.9064,"ci_upper":1.0885,"p_value":0.885349,"is_significant":false,"top_k":false},{"feature":"immediate_free_recall_trial_1_z_score","beta":0.004712,"OR":1.0047,"ci_lower":0.6216,"ci_upper":1.624,"p_value":0.984654,"is_significant":false,"top_k":false},{"feature":"trailmaking_part_a_time_z_score","beta":-0.001876,"OR":0.9981,"ci_lower":0.6169,"ci_upper":1.6149,"p_value":0.993903,"is_significant":false,"top_k":false},{"feature":"word_recognition_true_negative_z_score","beta":0.001552,"OR":1.0016,"ci_lower":0.9064,"ci_upper":1.1067,"p_value":0.975679,"is_significant":false,"top_k":false}],"top_k_rule":"p < 0.05 후보 중 |beta| 상위 3개","n":272,"n_events":185,"prevalence":0.6801,"cv_auc_mean":0.8256,"cv_auc_std":0.0844,"threshold_youden":0.6961}}}</script>
+<script>
+"use strict";
+
+// 계수는 두 경로로 들어옵니다.
+//   1) 같은 폴더의 models.json을 fetch  -> 성공하면 이것을 사용 (항상 최신)
+//   2) 실패하면 이 파일에 내장된 사본으로 폴백
+// GitHub Pages(https://)에서는 1번이 동작하므로 models.json만 갈아끼우면 사이트가 갱신됩니다.
+// 파일을 받아 더블클릭으로 여는 경우(file://)는 CORS 정책상 fetch가 막혀 2번으로 넘어갑니다.
+let DATA, MODELS, COMPOSITES, SEX_COL, SEX_POS, MODEL_SRC;
+
+// 출력 Excel과 동일한 컬럼 구성. 대시보드도 이 이름을 그대로 씁니다.
+const INFO_COLS = ['SCST_DATE','user_ID','NAME','Institution','sex','AGE','education_year'];
+const OUT_HEADER = [...INFO_COLS, 'cognitive_status', 'APOE', 'model_used',
+                    'P_amyloid_beta_positive_raw', 'P_amyloid_beta_positive_percent'];
+
+// 모델 계산에 반드시 필요한 원본 컬럼 (이름이 정확히 일치해야 함)
+const REQUIRED_COLS = () => [...COMPOSITES, 'sex', 'AGE', 'education_year'];
+
+const COG_OPTIONS  = ['SCD','MCI','Dementia'];
+const APOE_GENOTYPES = ['E2/E2','E2/E3','E2/E4','E3/E3','E3/E4','E4/E4'];
+
+/* ---------- 상태 ---------- */
+let WB = null, FILENAME = '', SHEET = '';
+let RAW = [], HEADERS = [], PATIENTS = [], MISSING_COLS = [];
+
+/* ---------- 유틸 ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num = v => { const n = parseFloat(String(v ?? '').replace(/,/g,'')); return Number.isFinite(n) ? n : null; };
+const show = v => (v === null || v === undefined || v === '') ? '' : esc(v);
+
+/* ---------- APOE 유전형 -> e4 carrier ---------- */
+function apoeCarrier(v){
+  if (!v) return null;
+  return /E4/i.test(v) ? 1 : 0;
+}
+
+/* ---------- 모델 선택 규칙 ---------- */
+// 정보가 많을수록 상위 모델. 인지검사 -> 혈액검사 순서를 강제.
+function selectModel(status, apoeVal){
+  const apoe = apoeCarrier(apoeVal);
+  const hasStatus = !!status, hasApoe = (apoe === 0 || apoe === 1);
+  if (!hasStatus && hasApoe) return {blocked:true};
+  const grp = status === 'Dementia' ? 'Dementia' : 'SCD_MCI';
+  if (!hasStatus) return {name:'M2_All'};
+  if (!hasApoe)   return {name:`M2_${grp}`};
+  return {name: grp === 'Dementia' ? 'M3_Dementia' : 'M4_SCD_MCI'};
+}
+
+/* ---------- 확률 계산 (HTML이 하는 일의 전부) ---------- */
+function featureValue(name, row, status, apoe){
+  if (name === SEX_COL)           return String(row['sex'] ?? '').trim() === SEX_POS ? 1 : 0;
+  if (name === 'is_MCI')          return status === 'MCI' ? 1 : 0;
+  if (name === 'is_Dementia')     return status === 'Dementia' ? 1 : 0;
+  if (name === 'APOE_e4_carrier') return apoeCarrier(apoe) === 1 ? 1 : 0;
+  return num(row[name]);
+}
+
+function predict(modelName, row, status, apoe){
+  const m = MODELS[modelName];
+  let logit = m.intercept; const missing = [];
+  for (const [k, coef] of Object.entries(m.coefficients)){
+    const x = featureValue(k, row, status, apoe);
+    if (x === null){ missing.push(k); continue; }
+    logit += coef * x;
+  }
+  if (missing.length) return {missing};
+  return {p: 1 / (1 + Math.exp(-logit))};
+}
+
+function rowResult(p){
+  const sel = selectModel(p.status, p.apoe);
+  if (sel.blocked) return {blocked:true};
+  return {model:sel.name, ...predict(sel.name, RAW[p.idx], p.status, p.apoe)};
+}
+
+/* ---------- 파일 읽기 ---------- */
+// 컬럼 매핑 UI는 두지 않습니다. SCST 원본의 컬럼명을 그대로 요구하고,
+// 없으면 무엇이 없는지 알려주고 계산하지 않습니다.
+const PREFERRED_SHEETS = ['COMMON','common','Sheet1'];
+
+function loadRows(rows, sheetName){
+  RAW = rows;
+  HEADERS = rows.length ? Object.keys(rows[0]) : [];
+  SHEET = sheetName || '';
+  PATIENTS = rows.map((_, i) => ({idx:i, status:'', apoe:null}));
+  MISSING_COLS = REQUIRED_COLS().filter(c => !HEADERS.includes(c));
+
+  renderCheck();
+  $('#tableCard').style.display = MISSING_COLS.length ? 'none' : '';
+  if (!MISSING_COLS.length) render();
+}
+
+function renderCheck(){
+  const box = $('#checkBox');
+  if (!RAW.length){ box.innerHTML = '<div class="note bad">데이터 행이 없습니다.</div>'; return; }
+
+  if (MISSING_COLS.length){
+    box.innerHTML = `<div class="note bad">
+      <b>필수 컬럼 ${MISSING_COLS.length}개가 없어 확률을 산출할 수 없습니다.</b><br>
+      <span style="display:inline-block;margin-top:6px">${MISSING_COLS.map(c => `<code>${esc(c)}</code>`).join(' ')}</span>
+      <br><span class="muted" style="font-size:11.5px">SCST 원본의 <code>COMMON</code> 시트를 올렸는지, 시트 선택이 맞는지 확인하세요.</span>
+    </div>`;
+    return;
+  }
+
+  const badSex = [...new Set(RAW.map(r => String(r['sex'] ?? '').trim()))]
+                   .filter(v => v && v !== '남성' && v !== '여성');
+  const noInfo = INFO_COLS.filter(c => !HEADERS.includes(c));
+
+  box.innerHTML = `<div class="note ok">
+    <b>필수 컬럼 ${REQUIRED_COLS().length}개 확인 완료</b> · ${RAW.length}명
+    ${noInfo.length ? `<br><span class="muted" style="font-size:11.5px">표시용 컬럼 없음(계산에는 영향 없음): ${noInfo.map(c=>`<code>${esc(c)}</code>`).join(' ')}</span>` : ''}
+    ${badSex.length ? `<br><span style="color:var(--crit)">sex 값에 <code>${badSex.map(esc).join('</code> <code>')}</code> 가 있습니다 — 남성/여성이 아니면 남성으로 처리됩니다.</span>` : ''}
+  </div>`;
+}
+
+function readSheet(name){
+  const rows = XLSX.utils.sheet_to_json(WB.Sheets[name], {defval:null});
+  $('#fileInfo').textContent = `${FILENAME} · [${name}] ${rows.length}명`;
+  loadRows(rows, name);
+}
+
+$('#file').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  FILENAME = f.name;
+  const rd = new FileReader();
+  rd.onload = ev => {
+    WB = XLSX.read(new Uint8Array(ev.target.result), {type:'array'});
+    const names = WB.SheetNames;
+    const pick = PREFERRED_SHEETS.find(n => names.includes(n)) ?? names[0];
+    const sel = $('#sheetSel');
+    sel.innerHTML = names.map(n => `<option${n===pick?' selected':''}>${esc(n)}</option>`).join('');
+    sel.onchange = () => readSheet(sel.value);
+    $('#sheetRow').style.display = names.length > 1 ? '' : 'none';
+    readSheet(pick);
+  };
+  rd.readAsArrayBuffer(f);
+};
+
+// 예시 데이터: 실제 SCST COMMON 시트와 "동일한 컬럼명"으로 8명을 만들어 냅니다.
+// 실데이터 없이 화면 동작을 확인하거나 시연 영상을 찍을 때 사용합니다.
+$('#demoBtn').onclick = () => {
+  const rows = [];
+  for (let i = 0; i < 8; i++){
+    const r = {
+      SCST_DATE: '2026-07-21',
+      user_ID: `DEMO-${String(i+1).padStart(3,'0')}`,
+      NAME: `예시환자${i+1}`,
+      Institution: '예시기관',
+      sex: i % 2 ? '여성' : '남성',
+      AGE: 60 + i * 3,
+      education_year: [6,9,12,12,14,16,16,18][i],
+    };
+    COMPOSITES.forEach((c, j) => { r[c] = +((Math.sin((i+1)*(j+2)) * 1.3) - i*0.15).toFixed(2); });
+    rows.push(r);
+  }
+  FILENAME = '예시 데이터';
+  $('#fileInfo').textContent = `예시 데이터 · ${rows.length}명`;
+  $('#sheetRow').style.display = 'none';
+  loadRows(rows, 'DEMO');
+};
+
+/* ---------- 결과 표 (출력 Excel과 동일한 컬럼 구성) ---------- */
+function render(){
+  const cogOpts = v => ['', ...COG_OPTIONS]
+    .map(o => `<option value="${o}"${o===v?' selected':''}>${o||'Unknown'}</option>`).join('');
+  const apoeOpts = v => ['', ...APOE_GENOTYPES]
+    .map(o => `<option value="${o}"${(v ?? '')===o?' selected':''}>${o||'Unknown'}</option>`).join('');
+
+  $('#tbl').querySelector('thead').innerHTML = '<tr><th style="width:34px"></th>'
+    + INFO_COLS.map(c => `<th class="${c==='AGE'||c==='education_year'?'num':''}">${c}</th>`).join('')
+    + '<th style="width:130px">cognitive_status <span class="tag">수동</span></th>'
+    + '<th style="width:140px">APOE <span class="tag">수동</span></th>'
+    + '<th>model_used</th>'
+    + '<th class="num">P_amyloid_beta_positive_raw</th>'
+    + '<th class="num" style="width:170px">P_amyloid_beta_positive_percent</th></tr>';
+
+  let blocked = 0;
+  $('#tbl').querySelector('tbody').innerHTML = PATIENTS.map((p, i) => {
+    const row = RAW[p.idx], res = rowResult(p);
+    let cModel, cRaw, cPct;
+    if (res.blocked){
+      blocked++;
+      cModel = '<span class="badge blocked">⚠ cognitive_status 필요</span>';
+      cRaw = ''; cPct = '<span class="muted">인지기능검사 결과를 먼저 입력하세요</span>';
+    } else if (res.missing){
+      cModel = `<span class="badge">${res.model}</span>`;
+      cRaw = ''; cPct = `<span class="muted">값 없음 (${res.missing.length}개)</span>`;
+    } else {
+      const pct = Math.max(0, Math.min(1, res.p));
+      cModel = `<span class="badge">${res.model}</span>`;
+      cRaw = res.p.toFixed(6);
+      cPct = `<div class="pcell"><div class="meter"><i style="width:${(pct*100).toFixed(1)}%"></i></div>`
+           + `<b>${(res.p*100).toFixed(1)}%</b></div>`;
+    }
+    return `<tr data-i="${i}"><td class="muted num">${i+1}</td>`
+      + INFO_COLS.map(c => `<td class="${c==='AGE'||c==='education_year'?'num':''}">${show(row[c])}</td>`).join('')
+      + `<td><select class="inp" data-i="${i}" data-k="status">${cogOpts(p.status)}</select></td>`
+      + `<td><select class="inp" data-i="${i}" data-k="apoe">${apoeOpts(p.apoe)}</select></td>`
+      + `<td>${cModel}</td><td class="num">${cRaw}</td><td class="num">${cPct}</td></tr>`;
+  }).join('');
+
+  $('#tbl').querySelectorAll('select.inp').forEach(sel => {
+    sel.onclick = e => e.stopPropagation();
+    sel.onchange = () => {
+      const p = PATIENTS[+sel.dataset.i];
+      if (sel.dataset.k === 'status') p.status = sel.value;
+      else p.apoe = sel.value || null;
+      render();
+    };
+  });
+  $('#tbl').querySelectorAll('tbody tr').forEach(tr => { tr.onclick = () => openDrawer(+tr.dataset.i); });
+
+  const b = $('#orderBanner');
+  b.classList.toggle('on', blocked > 0);
+  if (blocked) b.innerHTML = `<b>${blocked}명</b>이 APOE만 입력된 상태입니다.
+    인지기능검사 → 혈액검사 순서이므로, 해당 환자의 <b>cognitive_status를 먼저 입력</b>해야 확률이 계산됩니다.`;
+}
+
+/* ---------- 일괄 적용 ---------- */
+$('#bulkStatus').innerHTML = '<option value="">cognitive_status…</option>'
+  + COG_OPTIONS.map(o => `<option>${o}</option>`).join('')
+  + '<option value="__none__">Unknown</option>';
+$('#bulkApoe').innerHTML = '<option value="">APOE…</option>'
+  + APOE_GENOTYPES.map(g => `<option>${g}</option>`).join('')
+  + '<option value="__none__">Unknown</option>';
+
+$('#bulkStatus').onchange = e => {
+  const v = e.target.value; if (!v) return;
+  PATIENTS.forEach(p => p.status = (v === '__none__' ? '' : v));
+  e.target.value = ''; render();
+};
+$('#bulkApoe').onchange = e => {
+  const v = e.target.value; if (!v) return;
+  PATIENTS.forEach(p => p.apoe = (v === '__none__' ? null : v));
+  e.target.value = ''; render();
+};
+
+/* ---------- 상세 패널 ---------- */
+function forestCell(r, lo, hi){
+  const L = Math.log, clamp = v => Math.max(lo, Math.min(hi, v));
+  const x = v => ((L(clamp(v)) - L(lo)) / (L(hi) - L(lo))) * 100;
+  const c = r.OR >= 1 ? 'var(--pos)' : 'var(--neg)';
+  const op = r.is_significant ? 1 : .4;
+  return `<div class="forest" title="OR ${r.OR.toFixed(3)} (${r.ci_lower.toFixed(3)}–${r.ci_upper.toFixed(3)})">
+    <div class="ref" style="left:${x(1)}%"></div>
+    <div class="ci" style="left:${x(r.ci_lower)}%; width:${Math.max(1,x(r.ci_upper)-x(r.ci_lower))}%; background:${c}; opacity:${op}"></div>
+    <div class="pt" style="left:${x(r.OR)}%; background:${c}; opacity:${op}"></div>
+  </div>`;
+}
+
+function openDrawer(i){
+  const p = PATIENTS[i], row = RAW[p.idx], res = rowResult(p);
+  $('#dTitle').textContent = row['user_ID'] ?? `#${i+1}`;
+
+  if (res.blocked || res.missing){
+    $('#dModel').textContent = res.model || '—';
+    $('#dBody').innerHTML = `<p class="muted">${res.blocked
+      ? 'cognitive_status를 먼저 입력해야 모델이 선택됩니다.'
+      : '다음 값이 없어 계산할 수 없습니다:<br>' + res.missing.map(esc).join(', ')}</p>`;
+    showDrawer(); return;
+  }
+
+  const m = MODELS[res.model];
+  $('#dModel').textContent = res.model;
+  const rows = m.or_table;
+  const lo = Math.max(1e-3, Math.min(...rows.map(r => r.ci_lower)) * 0.9);
+  const hi = Math.min(1e3,  Math.max(...rows.map(r => r.ci_upper)) * 1.1);
+  const topk = rows.filter(r => r.top_k);
+
+  $('#dBody').innerHTML = `
+    <div class="hero"><span class="val">${(res.p*100).toFixed(1)}%</span>
+      <span class="unit">P_amyloid_beta_positive_percent</span></div>
+    <div class="bigmeter"><i style="width:${(Math.max(0,Math.min(1,res.p))*100).toFixed(1)}%"></i>
+      ${[25,50,75].map(t=>`<span class="tick" style="left:${t}%"></span>`).join('')}</div>
+    <div class="scalerow"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+
+    <div class="kv" style="margin-top:18px">
+      <span>P_amyloid_beta_positive_raw</span><b>${res.p.toFixed(6)}</b>
+      <span>model_used</span><b>${res.model}</b>
+      <span>cognitive_status</span><b>${p.status || 'Unknown'}</b>
+      <span>APOE</span><b>${p.apoe ? esc(p.apoe) + (apoeCarrier(p.apoe) ? ' (e4 보유)' : ' (e4 비보유)') : 'Unknown'}</b>
+      <span>학습 표본</span><b>n = ${m.n} (양성 ${m.n_events}, ${(m.prevalence*100).toFixed(1)}%)</b>
+      <span>교차검증 AUC</span><b>${m.cv_auc_mean?.toFixed(3) ?? '—'} ± ${m.cv_auc_std?.toFixed(3) ?? '—'}</b>
+    </div>
+
+    ${topk.length ? `<p class="muted" style="font-size:12.5px;margin:18px 0 0">
+      주요 변수 Top-${topk.length} — ${esc(m.top_k_rule)}. 아래 표에서 <span class="star">★</span> 표시된 행입니다.</p>` : ''}
+
+    <details class="fold" open><summary>계수별 Odds Ratio</summary>
+    <div class="legend">
+      <span><i style="background:var(--pos)"></i>OR &gt; 1 · 양성 확률 증가</span>
+      <span><i style="background:var(--neg)"></i>OR &lt; 1 · 양성 확률 감소</span>
+      <span class="muted">흐린 표시 = p ≥ 0.05</span>
+    </div>
+    <div class="scroll" style="max-height:420px"><table>
+      <thead><tr><th style="width:20px"></th><th>변수</th><th class="num">β</th>
+        <th class="num">OR (95% CI)</th><th style="width:140px">　</th><th class="num">p</th></tr></thead>
+      <tbody>${rows.map(r => `<tr class="${r.top_k?'topk':''}">
+        <td class="star">${r.top_k?'★':''}</td>
+        <td>${esc(r.feature.replace(/_z_score$/,''))}</td>
+        <td class="num">${r.beta.toFixed(3)}</td>
+        <td class="num">${r.OR.toFixed(3)} <span class="muted">(${r.ci_lower.toFixed(2)}–${r.ci_upper.toFixed(2)})</span></td>
+        <td>${forestCell(r, lo, hi)}</td>
+        <td class="num">${r.p_value < 0.001 ? '&lt;0.001' : r.p_value.toFixed(3)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <p class="muted" style="font-size:11.5px;margin-top:8px">
+      표시된 신뢰구간과 p-value는 <b>모델 계수</b>에 대한 것이며, 개별 환자 예측확률의 불확실성이 아닙니다.
+      다중비교는 보정하지 않았습니다(탐색적 해석).</p>
+    </details>
+
+    <details class="fold"><summary>적용된 회귀식</summary>
+      <pre class="formula">${esc(m.formula)}</pre></details>`;
+  showDrawer();
+}
+function showDrawer(){ $('#drawer').classList.add('on'); $('#drawerBg').classList.add('on'); }
+function hideDrawer(){ $('#drawer').classList.remove('on'); $('#drawerBg').classList.remove('on'); }
+$('#closeDrawer').onclick = hideDrawer;
+$('#drawerBg').onclick = hideDrawer;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideDrawer(); });
+
+/* ---------- Excel 다운로드 (화면 표와 동일한 컬럼) ---------- */
+$('#dlBtn').onclick = () => {
+  const out = PATIENTS.map(p => {
+    const row = RAW[p.idx], res = rowResult(p);
+    const done = !res.blocked && !res.missing;
+    const rec = {};
+    INFO_COLS.forEach(c => { rec[c] = (c in row) ? (row[c] ?? null) : null; });
+    rec['cognitive_status'] = p.status || null;
+    rec['APOE'] = p.apoe || null;
+    rec['model_used'] = res.blocked ? null : res.model;
+    rec['P_amyloid_beta_positive_raw']     = done ? +res.p.toFixed(6) : null;
+    rec['P_amyloid_beta_positive_percent'] = done ? +(res.p * 100).toFixed(1) : null;
+    return rec;
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(out, {header:OUT_HEADER}), 'result');
+
+  const used = [...new Set(out.map(r => r['model_used']).filter(Boolean))];
+  const meta = [
+    {item:'generated_at', value:new Date().toLocaleString('ko-KR')},
+    {item:'source_file', value:FILENAME || '(직접 입력)'},
+    {item:'sheet', value:SHEET},
+    {item:'n_patients', value:PATIENTS.length},
+    ...used.map(nm => ({item:`model ${nm}`,
+      value:`train n=${MODELS[nm].n} (positive ${MODELS[nm].n_events}, ${(MODELS[nm].prevalence*100).toFixed(1)}%), `
+           + `CV AUC ${MODELS[nm].cv_auc_mean?.toFixed(3) ?? '—'}`})),
+    {item:'notice', value:'연구용 참고 도구이며 진단 목적이 아닙니다.'},
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(meta), 'model_info');
+
+  const d = new Date(), pad = n => String(n).padStart(2,'0');
+  XLSX.writeFile(wb, `amyloid_prob_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}.xlsx`);
+};
+
+/* ---------- 계수 로드 ---------- */
+$('#file').disabled = true;
+$('#demoBtn').disabled = true;
+
+(async function init(){
+  const inline = JSON.parse(document.getElementById('model-data').textContent);
+  let data = inline, src = 'inline';
+  try {
+    const r = await fetch('models.json', {cache:'no-store'});
+    if (r.ok){
+      const j = await r.json();
+      if (j && j.models && Object.keys(j.models).length){ data = j; src = 'models.json'; }
+    }
+  } catch (e) { /* file:// 또는 파일 없음 -> 내장본 사용 */ }
+
+  DATA = data;
+  MODELS = data.models;
+  COMPOSITES = data.encoding.composite_scores.columns;
+  SEX_COL = data.encoding.sex.column;              // 예: sex_여성
+  SEX_POS = SEX_COL.replace(/^sex_/, '');          // 예: 여성
+  MODEL_SRC = src;
+
+  $('#srcTag').textContent = (src === 'models.json' ? '계수 출처: models.json' : '계수 출처: 내장본')
+    + ` · 모델 ${Object.keys(MODELS).length}개`;
+
+  $('#demoBtn').disabled = false;
+  if (typeof XLSX !== 'undefined') $('#file').disabled = false;
+})();
+
+if (typeof XLSX === 'undefined'){
+  $('#libCard').style.display = '';
+  $('#dlBtn').disabled = true;
+}
+
+$('#themeBtn').onclick = () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+};
+</script>
+</body>
+</html>
